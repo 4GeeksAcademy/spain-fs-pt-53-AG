@@ -66,7 +66,7 @@ class Event(db.Model):
     place = db.Column(db.String(240), nullable=False)
     duration = db.Column(db.Integer, nullable=False)
     description = db.Column(db.String(750), nullable=False)
-    language = db.Column(db.Enum('spanish', 'catalan', 'english', 'german', 'french', 'no_preferences'), nullable=False)
+    language = db.Column(db.Enum('spanish', 'catalan', 'english', 'german', 'french'))
     gender = db.Column(db.Enum('female_only', 'queer_only', 'all_genders', 'no_preferences', name='gender_selection_enum'), nullable=False)
     price_type = db.Column(db.Enum('free', 'paid'), nullable=False)
     price = db.Column(db.Integer)
