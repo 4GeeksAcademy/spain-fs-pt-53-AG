@@ -1,5 +1,6 @@
 from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime
+from sqlalchemy import or_
+from datetime import datetime, timedelta
 import hashlib
 import os
 import re
@@ -61,11 +62,11 @@ class Event(db.Model):
     user_owner = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     name = db.Column(db.String(240), nullable=False)
     type = db.Column(db.Enum('nature', 'party', 'culture', 'relax', 'family', 'sport', name='event_type_enum'), nullable=False, index=True)
-    date = db.Column(db.Integer, nullable=False)
+    date = db.Column(db.Date, nullable=False)
     place = db.Column(db.String(240), nullable=False)
     duration = db.Column(db.Integer, nullable=False)
     description = db.Column(db.String(750), nullable=False)
-    language = db.Column(db.Enum('spanish', 'catalan', 'english', 'german', 'french'), nullable=False)
+    language = db.Column(db.Enum('spanish', 'catalan', 'english', 'german', 'french', 'no_preferences'), nullable=False)
     gender = db.Column(db.Enum('female_only', 'queer_only', 'all_genders', 'no_preferences', name='gender_selection_enum'), nullable=False)
     price_type = db.Column(db.Enum('free', 'paid'), nullable=False)
     price = db.Column(db.Integer)
@@ -89,6 +90,130 @@ class Event(db.Model):
         if not self.validate_date(date_str):
             raise ValueError("Invalid date format. Date should be in the format 'DD-MM-YYYY'")
         self.date = datetime.strptime(date_str, '%d-%m-%Y')
+
+    @staticmethod
+    def filter_events(filters):
+        query = Event.query
+
+        # Aplicar filtros dinámicos
+        # Filtrar por tipo de evento
+        if 'event_type' in filters:
+            event_types = filters['event_type']
+            query = query.filter(Event.type.in_(event_types))
+
+        # Filtro de fecha
+        if 'date_filter' in filters:
+            date_filter = filters['date_filter']
+            if date_filter == 'custom':
+                # Filtrar por fechas personalizadas
+                start_date = filters['start_date']
+                end_date = filters['end_date']
+                query = query.filter(Event.date >= start_date, Event.date <= end_date)
+            else:
+                # Filtrar por opciones de fecha predefinidas
+                if date_filter == 'today':
+                    query = query.filter(Event.date == datetime.today().date())
+                elif date_filter == 'tomorrow':
+                    query = query.filter(Event.date == (datetime.today() + timedelta(days=1)).date())
+                elif date_filter == 'this_week':
+                    end_of_week = datetime.today() + timedelta(days=(6 - datetime.today().weekday()))
+                    query = query.filter(Event.date >= datetime.today().date(), Event.date <= end_of_week)
+                elif date_filter == 'this_weekend':
+                    end_of_week = datetime.today() + timedelta(days=(6 - datetime.today().weekday()))
+                    next_weekend = end_of_week + timedelta(days=(5 - end_of_week.weekday()))
+                    query = query.filter(Event.date >= end_of_week.date(), Event.date <= next_weekend.date())
+                elif date_filter == 'next_week':
+                    start_of_next_week = datetime.today() + timedelta(days=(7 - datetime.today().weekday()))
+                    end_of_next_week = start_of_next_week + timedelta(days=6)
+                    query = query.filter(Event.date >= start_of_next_week.date(), Event.date <= end_of_next_week.date())
+
+            # Filtro de duración
+            if 'duration_filter' in filters:
+                duration_filters = filters['duration_filter']
+                duration_criteria = []
+
+                for duration_filter in duration_filters:
+                    if duration_filter == 'short':
+                        duration_criteria.append(Event.duration <= 60)
+                    elif duration_filter == 'medium':
+                        duration_criteria.append((Event.duration > 60) & (Event.duration <= 120))
+                    elif duration_filter == 'long':
+                        duration_criteria.append(Event.duration > 120)
+
+                if duration_criteria:
+                    query = query.filter(or_(*duration_criteria))
+
+        # Filtrar por edad mínima y máxima
+        if 'age_range_filter' in filters:
+            min_age = filters['age_range_filter'].get('min_age')
+            max_age = filters['age_range_filter'].get('max_age')
+            if min_age is not None:
+                query = query.filter(Event.min_age >= min_age)
+            if max_age is not None:
+                query = query.filter(Event.max_age <= max_age)
+
+        # Filtrar por cantidad mínima y máxima de personas
+        if 'people_range_filter' in filters:
+            min_people = filters['people_range_filter'].get('min_people')
+            max_people = filters['people_range_filter'].get('max_people')
+            if min_people is not None:
+                query = query.filter(Event.min_people >= min_people)
+            if max_people is not None:
+                query = query.filter(Event.max_people <= max_people)
+
+        # Filtrar por género
+        if 'gender_filter' in filters:
+            gender_filters = filters['gender_filter']
+            gender_criteria = []
+
+            for gender_filter in gender_filters:
+                if gender_filter == 'female_only':
+                    gender_criteria.append(Event.gender == 'female_only')
+                elif gender_filter == 'queer_only':
+                    gender_criteria.append(Event.gender == 'queer_only')
+                elif gender_filter == 'all_genders':
+                    gender_criteria.append(Event.gender == 'all_genders')
+                elif gender_filter == 'no_preferences':
+                    gender_criteria.append(Event.gender == 'no_preferences')
+
+            if gender_criteria:
+                query = query.filter(or_(*gender_criteria))
+
+        # Filtro de idioma
+        if 'language_filter' in filters:
+            language_filters = filters['language_filter']
+            language_criteria = []
+
+            for language_filter in language_filters:
+                if language_filter == 'spanish':
+                    language_criteria.append(Event.language == 'spanish')
+                elif language_filter == 'catalan':
+                    language_criteria.append(Event.language == 'catalan')
+                elif language_filter == 'english':
+                    language_criteria.append(Event.language == 'english')
+                elif language_filter == 'german':
+                    language_criteria.append(Event.language == 'german')
+                elif language_filter == 'french':
+                    language_criteria.append(Event.language == 'french')
+
+            if language_criteria:
+                query = query.filter(or_(*language_criteria))
+
+        # Filtro de precio
+        if 'price_type_filter' in filters:
+            price_type_filters = filters['price_type_filter']
+            price_type_criteria = []
+
+            for price_type_filter in price_type_filters:
+                if price_type_filter == 'free':
+                    price_type_criteria.append(Event.price_type == 'free')
+                elif price_type_filter == 'paid':
+                    price_type_criteria.append(Event.price_type == 'paid')
+
+            if price_type_criteria:
+                query = query.filter(or_(*price_type_criteria))
+
+        return query.all()
 
     __table_args__ = (
     db.CheckConstraint('min_age >= 0', name='event_min_age_positive'),
